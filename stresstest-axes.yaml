@@ -1,0 +1,61 @@
+#
+# Keyspace name and create CQL
+#
+keyspace: marketdata
+keyspace_definition: |
+  CREATE KEYSPACE marketdata WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};
+
+#
+# Table name and create CQL
+#
+table: axes
+table_definition: |
+  CREATE TABLE axes (
+    axe_date date, isin varchar, axe_time time, broker varchar,
+    side varchar, size bigint, price decimal, currency varchar,
+    PRIMARY KEY ((isin, axe_date), axe_time, broker, side)
+  ) WITH CLUSTERING ORDER BY (axe_time DESC, broker ASC);
+
+#
+# Meta information for generating data
+#
+columnspec:
+  - name: isin
+    size: fixed(12)
+    population: gaussian(1..20000)  # Annahme: Ca. 20000 verschiedene ISINs mit unterschiedlicher Häufigkeit (Normalverteilung)
+  - name: axe_date
+    population: fixed(1)            # Annahme: Es wird immer nur die Lieferung für den selben/ aktuellen Tag bei allen Axen simuliert
+  - name: axe_time
+    population: seq(1..57600)       # Annahme: Verteilung der Zeiten über ein 16h Fenster (Annahme: Axen kommen von 6-22h gleichverteilt)
+    cluster: fixed(1)               # Blockweise Anlieferung: Annahme, dass je Partition-Key (ISIN+Datum) eine blockweise Datenlieferung immer nur einen bestimmten Zeitpunkt kommt
+  - name: broker
+    size: fixed(10)
+    population: gaussian(1..50)     # Annahme: Ca. 50 verschiedene Broker kommen mit unterschiedlicher Häufigkeit (Normalverteilung) vor
+    cluster: uniform(1..2)          # Blockweise Anlieferung: Annahme, dass je Partition-Key (ISIN+Datum) eine blockweise Datenlieferung immer nur von für 1-2 verschiedene Broker kommt
+  - name: side
+    size: fixed(1)
+    population: uniform(1..2)       # Annahme: Gleichverteilte Häufigkeit zweier Sides
+  - name: price
+    population: uniform(1..100)
+  - name: currency
+    size: fixed(3)
+    population: uniform(1..3)
+  - name: size
+    population: uniform(1..100)
+
+
+#
+# Specs for insert queries
+#
+insert:
+  partitions: fixed(1)      # partitions per batch
+  batchtype: UNLOGGED       # use unlogged batches
+  select: fixed(10)/10      # no chance of skipping a row when generating inserts
+
+#
+# Read queries to run against the schema
+#
+queries:
+   get-specific-security:
+      cql: select * from axes where isin = ? and axe_date = ?
+      fields: samerow             # pick selection values from same row in partition
